@@ -1194,63 +1194,59 @@
       if (!state.db) return;
       const db = state.db;
 
-      onSnapshot(collection(db, 'dogs'), async (snapshot) => {
-        if (snapshot.empty) {
-          for (const d of RAW_37_DOGS) await setDoc(doc(db, 'dogs', d.id), d);
-        } else {
-          const loadedDogs = [];
-          snapshot.forEach((docSnap) => loadedDogs.push(docSnap.data()));
-          if (loadedDogs.length < 10) {
-            for (const d of RAW_37_DOGS) {
-              if (!loadedDogs.some(ld => ld.id === d.id)) await setDoc(doc(db, 'dogs', d.id), d);
-            }
-            return;
-          }
-          loadedDogs.sort((a, b) => (a.no || 999) - (b.no || 999));
-          state.dogs = loadedDogs;
-          refreshAllViews();
-          handleFormDogOrSlotChange();
-        }
-      });
+      const handleSyncError = (err) => {
+        console.error('Firestore 동기화 오류:', err);
+        showToast('서버 연결 또는 일일 무료 한도 제한을 확인해 주세요.', 'error');
+      };
+
+      onSnapshot(collection(db, 'dogs'), (snapshot) => {
+        if (snapshot.empty) return;
+        const loadedDogs = [];
+        snapshot.forEach((docSnap) => loadedDogs.push(docSnap.data()));
+        loadedDogs.sort((a, b) => (a.no || 999) - (b.no || 999));
+        state.dogs = loadedDogs;
+        refreshAllViews();
+      }, handleSyncError);
 
       onSnapshot(collection(db, 'care_logs'), (snapshot) => {
         const loadedLogs = [];
         snapshot.forEach((docSnap) => loadedLogs.push(docSnap.data()));
         state.logs = loadedLogs;
         refreshAllViews();
-        handleFormDogOrSlotChange();
-      });
+      }, handleSyncError);
 
       onSnapshot(collection(db, 'medical_logs'), (snapshot) => {
         const loadedMed = [];
         snapshot.forEach((docSnap) => loadedMed.push(docSnap.data()));
         state.medicalLogs = loadedMed;
         renderMedicalTable();
-      });
+      }, handleSyncError);
 
-      onSnapshot(doc(db, 'system', 'roster'), async (docSnap) => {
-        if (!docSnap.exists()) {
-          await saveRosterToCloud();
-        } else {
-          const data = docSnap.data();
-          if (data.students && Array.isArray(data.students) && data.students.length > 0) state.students = data.students;
-          if (data.teacherPin) state.teacherPin = data.teacherPin;
-          if (state.loggedInUser && state.loggedInUser.role === 'student') {
-            const found = state.students.find(s => s.id === state.loggedInUser.id);
-            if (found) state.loggedInUser.name = found.name || '';
-          }
-          refreshAllViews();
+      onSnapshot(doc(db, 'system', 'roster'), (docSnap) => {
+        if (!docSnap.exists()) return;
+        const data = docSnap.data();
+        if (data.students && Array.isArray(data.students) && data.students.length > 0) state.students = data.students;
+        if (data.teacherPin) state.teacherPin = data.teacherPin;
+        if (state.loggedInUser && state.loggedInUser.role === 'student') {
+          const found = state.students.find(s => s.id === state.loggedInUser.id);
+          if (found) state.loggedInUser.name = found.name || '';
         }
-      });
+        refreshAllViews();
+      }, handleSyncError);
     }
 
     async function saveRosterToCloud() {
       if (state.useFirebase && state.db) {
-        await setDoc(doc(state.db, 'system', 'roster'), {
-          students: state.students,
-          teacherPin: state.teacherPin,
-          updatedAt: new Date().toISOString()
-        });
+        try {
+          await setDoc(doc(state.db, 'system', 'roster'), {
+            students: state.students,
+            teacherPin: state.teacherPin,
+            updatedAt: new Date().toISOString()
+          });
+        } catch (err) {
+          console.error('계정/비밀번호 서버 저장 실패:', err);
+          showToast('계정·비밀번호 서버 저장에 실패했습니다.', 'error');
+        }
       }
     }
 
@@ -1260,7 +1256,14 @@
       else state.dogs.push(dogObj);
       state.dogs.sort((a, b) => (a.no || 999) - (b.no || 999));
       refreshAllViews();
-      if (state.useFirebase && state.db) await setDoc(doc(state.db, 'dogs', dogObj.id), dogObj);
+      if (state.useFirebase && state.db) {
+        try {
+          await setDoc(doc(state.db, 'dogs', dogObj.id), dogObj);
+        } catch (err) {
+          console.error('실습견 서버 저장 실패:', err);
+          showToast('실습견 정보 서버 저장에 실패했습니다.', 'error');
+        }
+      }
     }
 
     async function removeDogRecord(dogId) {
